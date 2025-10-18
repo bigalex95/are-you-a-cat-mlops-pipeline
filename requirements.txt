@@ -1,0 +1,8 @@
+tensorflow
+mlflow
+apache-airflow
+streamlit
+pillow
+pandas
+numpy
+scikit-learn

@@ -1,0 +1,102 @@
+version: "3.8"
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.10.2-python3.12
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__WEBSERVER__SECRET_KEY: "${AIRFLOW__WEBSERVER__SECRET_KEY:-changeme}"
+    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW__CORE__FERNET_KEY:-}"
+    AIRFLOW_UID: "${AIRFLOW_UID:-50000}"
+    AIRFLOW_GID: "${AIRFLOW_GID:-0}"
+  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+  depends_on:
+    postgres:
+      condition: service_healthy
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - airflow_logs:/opt/airflow/logs
+
+services:
+  # MLFLOW tracking server
+  mlflow-server:
+    build: .
+    image: are-you-a-cat:dev
+    command: >-
+      bash -lc "mlflow server \
+      --host 0.0.0.0 \
+      --port ${MLFLOW_PORT} \
+      --backend-store-uri file:///app/mlruns \
+      --default-artifact-root file:///app/mlruns"
+    ports:
+      - "${MLFLOW_PORT}:${MLFLOW_PORT}"
+    volumes:
+      - ./mlruns:/app/mlruns
+      - ./models:/app/models
+
+  # Streamlit application UI
+  streamlit-app:
+    build: .
+    image: are-you-a-cat:dev
+    command: >-
+      streamlit run app/streamlit_app.py
+      --server.port ${STREAMLIT_PORT}
+      --server.address 0.0.0.0
+    ports:
+      - "${STREAMLIT_PORT}:${STREAMLIT_PORT}"
+    environment:
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}
+    depends_on:
+      - mlflow-server
+    volumes:
+      # Mount source for fast local dev; comment out in prod
+      - ./:/app
+
+  # PostgreSQL database for Airflow metadata
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${POSTGRES_PORT}:5432"
+
+  # One-off initializer to set up Airflow DB and admin user
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command: -c "airflow db init && \
+      airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true"
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-webserver:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  airflow_logs:
+
