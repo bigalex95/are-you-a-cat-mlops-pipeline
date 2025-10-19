@@ -207,4 +207,31 @@ marimo/_lsp/
 __marimo__/
 
 
-.vscode
+.vscode/
+tmp/
+
+# Credentials
+.env
+.env.local
+.env.*.local
+
+# DVC local config (contains credentials)
+.dvc/config.local
+.dvc/tmp
+
+
+scripts/b2_monitoring.py
+dags/utils/dvc_operators.py
+dags/data_sync_check.py
+
+# Credentials and secrets
+b2_config.json
+.dvc/cache
+
+# Data directories (DVC managed or temporary)
+data/processed/*
+data/temp/*
+data/feedback/*
+!data/processed/.gitkeep
+!data/feedback/.gitkeep
+!data/temp/.gitkeep

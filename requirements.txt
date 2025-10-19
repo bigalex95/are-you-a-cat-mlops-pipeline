@@ -1,4 +1,5 @@
-tensorflow
+tensorflow[and-cuda]
+tensorflow-datasets
 mlflow
 apache-airflow
 streamlit
@@ -6,3 +7,8 @@ pillow
 pandas
 numpy
 scikit-learn
+matplotlib
+seaborn
+jupyter
+ipykernel
+dvc[s3]
