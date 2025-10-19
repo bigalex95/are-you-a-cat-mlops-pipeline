@@ -1,0 +1,17 @@
+tensorflow
+tensorflow-datasets
+mlflow
+apache-airflow
+streamlit
+pillow
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+jupyter
+ipykernel
+# DVC with S3 support (for Backblaze B2)
+dvc
+boto3
+s3fs

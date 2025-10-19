@@ -1,3 +1,10 @@
+# For local development (with CUDA support), use:
+# pip install -r requirements-local.txt
+#
+# For Docker (CPU-only), use:
+# pip install -r requirements-docker.txt
+#
+# Default: Local development with CUDA
 tensorflow[and-cuda]
 tensorflow-datasets
 mlflow
@@ -11,4 +18,7 @@ matplotlib
 seaborn
 jupyter
 ipykernel
-dvc[s3]
+# DVC with S3 support (for Backblaze B2)
+dvc
+boto3
+s3fs

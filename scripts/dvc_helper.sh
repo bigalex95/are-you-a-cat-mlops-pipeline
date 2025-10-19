@@ -24,8 +24,32 @@ case "$1" in
         ;;
     check)
         echo "🔍 Testing B2 connection..."
-        aws s3 ls s3://${B2_BUCKET}/ \
-            --endpoint-url ${B2_ENDPOINT}
+        python3 -c "
+import os
+import boto3
+from botocore.exceptions import ClientError
+
+try:
+    s3 = boto3.client(
+        's3',
+        endpoint_url=os.getenv('B2_ENDPOINT'),
+        aws_access_key_id=os.getenv('B2_KEY_ID'),
+        aws_secret_access_key=os.getenv('B2_APPLICATION_KEY')
+    )
+    response = s3.list_objects_v2(Bucket=os.getenv('B2_BUCKET'), MaxKeys=5)
+    print('✅ Connection successful!')
+    print(f\"Bucket: {os.getenv('B2_BUCKET')}\")
+    if 'Contents' in response:
+        print(f'Files found: {len(response[\"Contents\"])}')
+    else:
+        print('Bucket is empty or no files in prefix')
+except ClientError as e:
+    print(f'❌ Connection failed: {e}')
+    exit(1)
+except Exception as e:
+    print(f'❌ Error: {e}')
+    exit(1)
+"
         ;;
     *)
         echo "Usage: $0 {pull|push|status|check}"

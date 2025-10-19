@@ -6,16 +6,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Install system dependencies (libgomp1 for TensorFlow) and clean up
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv for faster package installation
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Set working directory
 WORKDIR /app
 
 # Install Python dependencies first for better caching
-COPY requirements.txt ./
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+COPY requirements-docker.txt ./
+RUN uv pip install --system --no-cache -r requirements-docker.txt
 
 # Copy the rest of the application code
 COPY . .
