@@ -5,6 +5,4 @@
     endpointurl = https://s3.eu-central-003.backblazeb2.com
     region = eu-central-003
 ['remote "dagshub"']
-    url = s3://dvc
-    endpointurl = https://dagshub.com/bigalex95/are-you-a-cat-mlops-pipeline.s3
-    region = us-east-1
+    url = https://dagshub.com/bigalex95/are-you-a-cat-mlops-pipeline.dvc
