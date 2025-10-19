@@ -297,6 +297,85 @@ This will start:
 
 ---
 
+## 📦 Data Version Control (DVC)
+
+This project uses **DVC** with **multiple remote storage backends** for data versioning, ensuring redundancy and avoiding bandwidth limitations.
+
+### 🗄️ Available Remotes
+
+| Remote | Storage | Free Tier | Download Limit | Speed |
+|--------|---------|-----------|----------------|-------|
+| **backblaze** (default) | Backblaze B2 | 10 GB | 1 GB/day ⚠️ | Fast |
+| **dagshub** (backup) | DagsHub | 10 GB | Unlimited ✅ | Moderate |
+
+### 🚀 Quick Start
+
+#### Setup DVC Remotes (First Time Only)
+
+```bash
+# 1. Rename existing remote to backblaze
+dvc remote rename myremote backblaze
+
+# 2. Add DagsHub as second remote
+dvc remote add dagshub https://dagshub.com/bigalex95/are-you-a-cat-mlops-pipeline.dvc
+
+# 3. Configure DagsHub authentication
+dvc remote modify dagshub --local auth basic
+dvc remote modify dagshub --local user bigalex95
+dvc remote modify dagshub --local password YOUR_DAGSHUB_TOKEN
+
+# 4. Push data to both remotes
+./scripts/dvc_sync_remotes.sh
+```
+
+👉 **Detailed setup instructions**: See [docs/DVC_SETUP.md](docs/DVC_SETUP.md)
+
+### 📥 Pulling Data
+
+```bash
+# Smart pull (automatic fallback if Backblaze limit reached)
+./scripts/dvc_pull_smart.sh
+
+# Pull from specific remote
+dvc pull -r backblaze  # Fast, but has daily limit
+dvc pull -r dagshub    # Unlimited downloads
+```
+
+### 📤 Pushing Data
+
+```bash
+# Push to all remotes (recommended)
+./scripts/dvc_push_all.sh
+
+# Push to specific remote
+dvc push -r backblaze
+dvc push -r dagshub
+```
+
+### 🔄 Daily Workflow
+
+**Normal Development** (Backblaze available):
+```bash
+./scripts/dvc_pull_smart.sh  # Pull data
+# ... your work ...
+./scripts/dvc_push_all.sh    # Push to all remotes
+```
+
+**When Backblaze Limit Hit** (1GB/day reached):
+```bash
+dvc pull -r dagshub           # Use DagsHub instead
+# ... your work ...
+dvc push -r dagshub           # Push to DagsHub
+```
+
+### 📚 Learn More
+
+- **Full DVC Setup Guide**: [docs/DVC_SETUP.md](docs/DVC_SETUP.md)
+- **DVC Official Docs**: https://dvc.org/doc
+- **DagsHub Docs**: https://dagshub.com/docs
+
+---
+
 ## 📖 Usage Guide
 
 ### Training a Model
