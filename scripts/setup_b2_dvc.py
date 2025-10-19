@@ -176,46 +176,160 @@ class B2DVCSetup:
         self.print_success("Credentials collected successfully")
         return credentials
 
-    def create_env_file(self) -> bool:
-        """Create .env file with B2 credentials"""
-        self.print_step("STEP 3", "Creating .env File")
+    def parse_env_file(self) -> Dict[str, str]:
+        """Parse existing .env file and return dictionary of variables"""
+        env_vars = {}
 
-        env_content = f"""# Backblaze B2 Configuration
-# Generated: 2025-10-19 13:23:42
-# DO NOT COMMIT THIS FILE TO GIT!
-
-# B2 Credentials
-B2_BUCKET={self.config['bucket_name']}
-B2_KEY_ID={self.config['key_id']}
-B2_APPLICATION_KEY={self.config['application_key']}
-B2_ENDPOINT={self.config['endpoint']}
-B2_REGION={self.config['region']}
-
-# AWS-compatible environment variables (for boto3/DVC)
-AWS_ACCESS_KEY_ID={self.config['key_id']}
-AWS_SECRET_ACCESS_KEY={self.config['application_key']}
-AWS_ENDPOINT_URL={self.config['endpoint']}
-AWS_DEFAULT_REGION={self.config['region']}
-
-# MLflow Configuration
-MLFLOW_TRACKING_URI=http://localhost:5000
-MLFLOW_S3_ENDPOINT_URL={self.config['endpoint']}
-
-# DVC Configuration
-DVC_REMOTE=myremote
-"""
+        if not self.env_file.exists():
+            return env_vars
 
         try:
+            with open(self.env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if not line or line.startswith("#"):
+                        continue
+                    # Parse KEY=VALUE
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        env_vars[key.strip()] = value.strip()
+        except Exception as e:
+            self.print_warning(f"Error reading existing .env file: {e}")
+
+        return env_vars
+
+    def write_env_file(self, env_vars: Dict[str, str]) -> bool:
+        """Write environment variables to .env file preserving structure"""
+        try:
+            # Build the content with sections
+            sections = {
+                "header": [
+                    "# Backblaze B2 Configuration",
+                    f"# Updated: {self.get_timestamp()}",
+                    "# DO NOT COMMIT THIS FILE TO GIT!",
+                    "",
+                ],
+                "b2": [
+                    "# B2 Credentials",
+                    f"B2_BUCKET={env_vars.get('B2_BUCKET', '')}",
+                    f"B2_KEY_ID={env_vars.get('B2_KEY_ID', '')}",
+                    f"B2_APPLICATION_KEY={env_vars.get('B2_APPLICATION_KEY', '')}",
+                    f"B2_ENDPOINT={env_vars.get('B2_ENDPOINT', '')}",
+                    f"B2_REGION={env_vars.get('B2_REGION', '')}",
+                    "",
+                ],
+                "aws": [
+                    "# AWS-compatible environment variables (for boto3/DVC)",
+                    f"AWS_ACCESS_KEY_ID={env_vars.get('AWS_ACCESS_KEY_ID', '')}",
+                    f"AWS_SECRET_ACCESS_KEY={env_vars.get('AWS_SECRET_ACCESS_KEY', '')}",
+                    f"AWS_ENDPOINT_URL={env_vars.get('AWS_ENDPOINT_URL', '')}",
+                    f"AWS_DEFAULT_REGION={env_vars.get('AWS_DEFAULT_REGION', '')}",
+                    "",
+                ],
+                "mlflow": [
+                    "# MLflow Configuration",
+                    f"MLFLOW_TRACKING_URI={env_vars.get('MLFLOW_TRACKING_URI', 'http://localhost:5000')}",
+                    f"MLFLOW_S3_ENDPOINT_URL={env_vars.get('MLFLOW_S3_ENDPOINT_URL', '')}",
+                    "",
+                ],
+                "dvc": [
+                    "# DVC Configuration",
+                    f"DVC_REMOTE={env_vars.get('DVC_REMOTE', 'myremote')}",
+                    "",
+                ],
+            }
+
+            # Collect all B2/AWS/MLflow/DVC related keys
+            managed_keys = {
+                "B2_BUCKET",
+                "B2_KEY_ID",
+                "B2_APPLICATION_KEY",
+                "B2_ENDPOINT",
+                "B2_REGION",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_ENDPOINT_URL",
+                "AWS_DEFAULT_REGION",
+                "MLFLOW_TRACKING_URI",
+                "MLFLOW_S3_ENDPOINT_URL",
+                "DVC_REMOTE",
+            }
+
+            # Find other variables not managed by this script
+            other_vars = {k: v for k, v in env_vars.items() if k not in managed_keys}
+
+            # Write the file
             with open(self.env_file, "w") as f:
-                f.write(env_content)
+                # Write header
+                f.write("\n".join(sections["header"]) + "\n")
+
+                # Write other existing variables first (if any)
+                if other_vars:
+                    f.write("# --- Existing Configuration ---\n")
+                    for key, value in sorted(other_vars.items()):
+                        f.write(f"{key}={value}\n")
+                    f.write("\n")
+
+                # Write B2, AWS, MLflow, DVC sections
+                for section in ["b2", "aws", "mlflow", "dvc"]:
+                    f.write("\n".join(sections[section]) + "\n")
 
             # Set file permissions (read/write for owner only)
             os.chmod(self.env_file, 0o600)
 
-            self.print_success(f"Created .env file at: {self.env_file}")
             return True
         except Exception as e:
-            self.print_error(f"Failed to create .env file: {e}")
+            self.print_error(f"Failed to write .env file: {e}")
+            return False
+
+    def get_timestamp(self) -> str:
+        """Get current timestamp as string"""
+        from datetime import datetime
+
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def create_env_file(self) -> bool:
+        """Create or update .env file with B2 credentials"""
+        self.print_step("STEP 3", "Creating/Updating .env File")
+
+        # Read existing environment variables
+        existing_vars = self.parse_env_file()
+
+        if existing_vars:
+            self.print_info(
+                f"Found existing .env file with {len(existing_vars)} variables"
+            )
+        else:
+            self.print_info("Creating new .env file")
+
+        # Update with new B2 configuration
+        existing_vars.update(
+            {
+                "B2_BUCKET": self.config["bucket_name"],
+                "B2_KEY_ID": self.config["key_id"],
+                "B2_APPLICATION_KEY": self.config["application_key"],
+                "B2_ENDPOINT": self.config["endpoint"],
+                "B2_REGION": self.config["region"],
+                "AWS_ACCESS_KEY_ID": self.config["key_id"],
+                "AWS_SECRET_ACCESS_KEY": self.config["application_key"],
+                "AWS_ENDPOINT_URL": self.config["endpoint"],
+                "AWS_DEFAULT_REGION": self.config["region"],
+                "MLFLOW_S3_ENDPOINT_URL": self.config["endpoint"],
+            }
+        )
+
+        # Set defaults for variables that don't exist
+        if "MLFLOW_TRACKING_URI" not in existing_vars:
+            existing_vars["MLFLOW_TRACKING_URI"] = "http://localhost:5000"
+        if "DVC_REMOTE" not in existing_vars:
+            existing_vars["DVC_REMOTE"] = "myremote"
+
+        # Write the updated .env file
+        if self.write_env_file(existing_vars):
+            self.print_success(f"Updated .env file at: {self.env_file}")
+            return True
+        else:
             return False
 
     def update_gitignore(self) -> bool:
@@ -235,6 +349,14 @@ DVC_REMOTE=myremote
             ".dvc/config.local",
             ".dvc/tmp",
             ".dvc/cache",
+            "",
+            "# Data directories (DVC managed or temporary)",
+            "data/processed/*",
+            "data/temp/*",
+            "data/feedback/*",
+            "!data/processed/.gitkeep",
+            "!data/feedback/.gitkeep",
+            "!data/temp/.gitkeep",
             "",
         ]
 
@@ -569,26 +691,42 @@ esac
 
 def main():
     """Main entry point"""
+    # Print welcome message
+    print(f"\n{Colors.HEADER}{Colors.BOLD}")
+    print("=" * 70)
+    print("  Backblaze B2 + DVC Setup Automation")
+    print("=" * 70)
+    print(f"{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}This script can run in two modes:{Colors.ENDC}")
+    print(
+        f"  {Colors.BOLD}1. Interactive mode{Colors.ENDC} - Prompts you for credentials (default)"
+    )
+    print(
+        f"  {Colors.BOLD}2. Config file mode{Colors.ENDC} - Reads credentials from a JSON file"
+    )
+    print()
+
     parser = argparse.ArgumentParser(
         description="Automate Backblaze B2 and DVC setup",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Interactive setup
+  # Interactive setup (default)
+  python scripts/setup_b2_dvc.py
   python scripts/setup_b2_dvc.py --interactive
   
   # Non-interactive with config file
   python scripts/setup_b2_dvc.py --config b2_config.json
   
   # Specify project directory
-  python scripts/setup_b2_dvc.py --interactive --project-dir /path/to/project
+  python scripts/setup_b2_dvc.py --project-dir /path/to/project
         """,
     )
 
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="Run in interactive mode (prompt for credentials)",
+        help="Run in interactive mode (prompt for credentials) - DEFAULT if no args provided",
     )
 
     parser.add_argument(
@@ -604,8 +742,10 @@ Examples:
 
     args = parser.parse_args()
 
+    # Default to interactive mode if no args provided
     if not args.interactive and not args.config:
-        parser.error("Either --interactive or --config must be specified")
+        print(f"{Colors.OKGREEN}▶ Running in interactive mode (default){Colors.ENDC}\n")
+        args.interactive = True
 
     # Run setup
     project_root = Path(args.project_dir).resolve()
