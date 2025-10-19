@@ -1,0 +1,6 @@
+[core]
+    remote = myremote
+['remote "myremote"']
+    url = s3://are-you-a-cat-dvc/dvc-storage
+    endpointurl = https://s3.eu-central-003.backblazeb2.com
+    region = eu-central-003
