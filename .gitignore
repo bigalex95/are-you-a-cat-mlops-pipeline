@@ -229,9 +229,10 @@ b2_config.json
 .dvc/cache
 
 # Data directories (DVC managed or temporary)
-data/processed/*
 data/temp/*
 data/feedback/*
-!data/processed/.gitkeep
 !data/feedback/.gitkeep
 !data/temp/.gitkeep
+/models
+/models
+/models

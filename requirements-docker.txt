@@ -15,3 +15,4 @@ ipykernel
 dvc
 boto3
 s3fs
+opencv-python

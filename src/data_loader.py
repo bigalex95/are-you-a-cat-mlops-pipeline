@@ -6,11 +6,20 @@ using TensorFlow Datasets with automatic caching support.
 """
 
 import os
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import numpy as np
 from typing import Tuple, Optional, List, Union
 import logging
+
+# Import preprocess and split logic
+from preprocess import (
+    preprocess_images,
+    split_data,
+    save_processed_data,
+    load_processed_data,
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -70,7 +79,38 @@ def load_dataset(
         - Practice handling different data splits
         - Understand the importance of data loading in ML pipelines
     """
-    # Set data directory
+
+    # If user requests the full split (train, val, test), check for processed data
+    # If processed data exists, load and return splits
+    processed_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "data", "processed"
+    )
+    processed_files = [
+        "train_images.npy",
+        "train_labels.npy",
+        "val_images.npy",
+        "val_labels.npy",
+        "test_images.npy",
+        "test_labels.npy",
+    ]
+    processed_exists = all(
+        os.path.exists(os.path.join(processed_dir, f)) for f in processed_files
+    )
+
+    # Only use processed data if loading the full dataset (not a custom split)
+    # WARNING: Loading processed data loads ALL data into memory at once (~6GB)
+    # This can cause GPU OOM errors on systems with limited GPU memory
+    # For production training, consider using batch_size parameter or raw TFRecords
+    if split == "train" and batch_size is None and processed_exists:
+        logger.info("Processed data found. Loading from data/processed...")
+        logger.warning(
+            "Loading processed .npy files loads entire dataset into memory (~6GB). "
+            "If you encounter GPU memory errors, consider using raw data with "
+            "batch_size parameter or reducing dataset size."
+        )
+        return load_processed_data(processed_dir, mmap_mode="r")
+
+    # Otherwise, load from TFDS as before
     if data_dir is None:
         data_dir = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "data", "raw"
@@ -82,8 +122,7 @@ def load_dataset(
 
     try:
         # Load dataset from TensorFlow Datasets
-        # as_supervised=True returns (image, label) tuples
-        dataset, info = tfds.load(  # type: ignore[misc]
+        dataset_info = tfds.load(
             "cats_vs_dogs",
             split=split,
             data_dir=data_dir,
@@ -91,33 +130,47 @@ def load_dataset(
             with_info=True,
             shuffle_files=shuffle,
         )
+        # tfds.load returns (dataset, info)
+        if isinstance(dataset_info, tuple) and len(dataset_info) == 2:
+            dataset, info = dataset_info
+        else:
+            # fallback for older/newer tfds
+            dataset = (
+                dataset_info[0]
+                if isinstance(dataset_info, (list, tuple))
+                else dataset_info
+            )
+            info = None
 
         logger.info(f"Dataset info: {info}")
-        logger.info(
-            f"Number of examples: {info.splits[split.split('[')[0]].num_examples}"
-        )
-        logger.info(f"Features: {info.features}")
+        if info is not None:
+            logger.info(
+                f"Number of examples: {info.splits[split.split('[')[0]].num_examples}"
+            )
+            logger.info(f"Features: {info.features}")
 
-        # If batch_size is specified, return the batched dataset
-        if batch_size is not None:
+        # If batch_size is specified, return the batched dataset (only if tf.data.Dataset)
+        if batch_size is not None and isinstance(dataset, tf.data.Dataset):
             if shuffle:
                 dataset = dataset.shuffle(buffer_size=1000)
             dataset = dataset.batch(batch_size)
             return dataset
 
         # Otherwise, load all data into memory
-        # Note: Images have different sizes, so we keep them as a list
-        # They will be resized during preprocessing
         images = []
         labels = []
 
         logger.info("Converting dataset to numpy arrays...")
-        for image, label in tfds.as_numpy(dataset):
-            images.append(image)
-            labels.append(label)
+        # tfds.as_numpy only works for tf.data.Dataset
+        if hasattr(dataset, "__iter__"):
+            for image, label in tfds.as_numpy(dataset):
+                images.append(image)
+                labels.append(label)
+        else:
+            raise RuntimeError(
+                "Loaded dataset is not iterable. Check TFDS version and API."
+            )
 
-        # Convert labels to numpy array (they have uniform size)
-        # Keep images as list since they have varying dimensions
         labels = np.array(labels)
 
         logger.info(f"Loaded {len(images)} images")
@@ -127,12 +180,28 @@ def load_dataset(
             f"Label distribution - Cats (0): {np.sum(labels == 0)}, Dogs (1): {np.sum(labels == 1)}"
         )
 
-        # Sample image dimensions
-        if len(images) > 0:
-            sample_shapes = [img.shape for img in images[:5]]
-            logger.info(f"Sample image shapes: {sample_shapes}")
+        # If loading the full train split, preprocess, split, and save processed data
+        if split == "train":
+            logger.info("Preprocessing, splitting, and saving processed data...")
+            processed_images = preprocess_images(
+                images, target_size=(150, 150), normalize=True
+            )
+            data_splits = split_data(
+                processed_images,
+                labels,
+                train_size=0.7,
+                val_size=0.15,
+                test_size=0.15,
+                shuffle=True,
+            )
+            save_processed_data(data_splits, save_dir=processed_dir)
+            return data_splits
 
-        return images, labels
+        # For custom splits, just preprocess and return
+        processed_images = preprocess_images(
+            images, target_size=(150, 150), normalize=True
+        )
+        return processed_images, labels
 
     except Exception as e:
         logger.error(f"Error loading dataset: {str(e)}")
@@ -237,16 +306,20 @@ if __name__ == "__main__":
 
     # Load a small sample for testing
     print("\n3. Loading a small sample (first 100 examples)...")
-    images, labels = load_dataset(split="train[:100]", shuffle=False)
-    print(f"\nSample loaded successfully!")
-    print(f"Number of images: {len(images)}")
-    print(f"Labels shape: {labels.shape}")
-    print(f"Sample image shapes: {[img.shape for img in images[:5]]}")
-    print(f"Label dtype: {labels.dtype}")
-    print(
-        f"Image value ranges: min={min(img.min() for img in images)}, max={max(img.max() for img in images)}"
-    )
-    print(f"Unique labels: {np.unique(labels)}")
+    sample = load_dataset(split="train[:100]", shuffle=False)
+    if isinstance(sample, tuple) and len(sample) == 2:
+        images, labels = sample
+        print(f"\nSample loaded successfully!")
+        print(f"Number of images: {len(images)}")
+        print(f"Labels shape: {labels.shape}")
+        print(f"Sample image shapes: {[img.shape for img in images[:5]]}")
+        print(f"Label dtype: {labels.dtype}")
+        print(
+            f"Image value ranges: min={min(img.min() for img in images)}, max={max(img.max() for img in images)}"
+        )
+        print(f"Unique labels: {np.unique(labels)}")
+    else:
+        print("Sample could not be loaded as (images, labels) tuple.")
 
     print("\n" + "=" * 80)
     print("Testing complete!")
