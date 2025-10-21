@@ -412,6 +412,7 @@ def save_processed_data(
 
 def load_processed_data(
     load_dir: str = None,
+    mmap_mode: str = "r",
 ) -> Tuple[
     Tuple[np.ndarray, np.ndarray],
     Tuple[np.ndarray, np.ndarray],
@@ -423,14 +424,22 @@ def load_processed_data(
     Args:
         load_dir (str): Directory containing processed data.
             Default: None (uses ../data/processed/)
+        mmap_mode (str): Memory-map mode for numpy arrays. Options:
+            - 'r': Read-only (memory-mapped, efficient for large files)
+            - None: Load entire array into memory
+            Default: 'r' (memory-mapped)
 
     Returns:
         Tuple containing (train, val, test) data, where each is (images, labels)
 
     Example:
-        >>> train_data, val_data, test_data = load_processed_data()
+        >>> # Memory-mapped loading (efficient, doesn't load all into RAM)
+        >>> train_data, val_data, test_data = load_processed_data(mmap_mode='r')
         >>> X_train, y_train = train_data
-        >>> print(f"Loaded {len(X_train)} training samples")
+        >>> print(f"Loaded {len(X_train)} training samples (memory-mapped)")
+
+        >>> # Load all into memory (use only if you have enough RAM/GPU memory)
+        >>> train_data, val_data, test_data = load_processed_data(mmap_mode=None)
     """
     import os
 
@@ -440,18 +449,34 @@ def load_processed_data(
         )
 
     logger.info(f"Loading processed data from {load_dir}")
+    if mmap_mode:
+        logger.info(
+            f"Using memory-mapped mode: {mmap_mode} (efficient for large files)"
+        )
+    else:
+        logger.info(
+            "Loading all data into memory (may require significant RAM/GPU memory)"
+        )
 
     # Load training data
-    train_images = np.load(os.path.join(load_dir, "train_images.npy"))
-    train_labels = np.load(os.path.join(load_dir, "train_labels.npy"))
+    train_images = np.load(
+        os.path.join(load_dir, "train_images.npy"), mmap_mode=mmap_mode
+    )
+    train_labels = np.load(
+        os.path.join(load_dir, "train_labels.npy"), mmap_mode=mmap_mode
+    )
 
     # Load validation data
-    val_images = np.load(os.path.join(load_dir, "val_images.npy"))
-    val_labels = np.load(os.path.join(load_dir, "val_labels.npy"))
+    val_images = np.load(os.path.join(load_dir, "val_images.npy"), mmap_mode=mmap_mode)
+    val_labels = np.load(os.path.join(load_dir, "val_labels.npy"), mmap_mode=mmap_mode)
 
     # Load test data
-    test_images = np.load(os.path.join(load_dir, "test_images.npy"))
-    test_labels = np.load(os.path.join(load_dir, "test_labels.npy"))
+    test_images = np.load(
+        os.path.join(load_dir, "test_images.npy"), mmap_mode=mmap_mode
+    )
+    test_labels = np.load(
+        os.path.join(load_dir, "test_labels.npy"), mmap_mode=mmap_mode
+    )
 
     logger.info(f"Loaded {len(train_images)} training samples")
     logger.info(f"Loaded {len(val_images)} validation samples")

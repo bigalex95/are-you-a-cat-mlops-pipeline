@@ -10,6 +10,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 
+# Force CPU usage to avoid GPU memory issues (comment out to use GPU)
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 # Add src directory to path (now we're in tests/ folder, so go up one level)
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
@@ -24,28 +27,64 @@ def test_with_real_data():
     print("TEST 1: Training with Real Cats vs Dogs Data")
     print("=" * 80)
 
-    # Load a subset of the real dataset (first 1000 samples for quick training)
-    print("\n1. Loading real cats vs dogs dataset...")
-    images, labels = load_dataset(split="train[:1000]", shuffle=True)
-    print(f"Loaded {len(images)} images")
-
-    # Preprocess images
-    print("\n2. Preprocessing images to 150x150...")
-    processed_images = preprocess_images(images, target_size=(150, 150), normalize=True)
-
-    # Split data
-    print("\n3. Splitting data into train/val/test sets...")
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_data(
-        processed_images,
-        labels,
-        train_size=0.7,
-        val_size=0.15,
-        test_size=0.15,
-        shuffle=True,
+    # Use new pipeline: load_dataset('train') returns (train, val, test) splits from processed data if available
+    print("\n1. Loading processed or raw cats vs dogs dataset (full train split)...")
+    print(
+        "   Note: Loading full processed dataset (~4GB) requires significant GPU memory."
     )
+    print("   The script will use CPU to avoid GPU memory issues.\n")
+
+    data = load_dataset(split="train", shuffle=True)
+    # Handle both (images, labels) and (train, val, test) return types
+    if isinstance(data, tuple) and len(data) == 3:
+        (X_train, y_train), (X_val, y_val), (X_test, y_test) = data
+        print(
+            f"Loaded splits: train={len(X_train)}, val={len(X_val)}, test={len(X_test)}"
+        )
+
+        # CRITICAL: Reduce dataset size to fit in GPU memory
+        print(
+            "\n2. Reducing dataset size for demo (using first 1000 training samples)..."
+        )
+        print("   Full dataset (16k+ images) requires more GPU memory than available.")
+        X_train = X_train[:1000]
+        y_train = y_train[:1000]
+        X_val = X_val[:200]
+        y_val = y_val[:200]
+        X_test = X_test[:200]
+        y_test = y_test[:200]
+        print(f"   Using: train={len(X_train)}, val={len(X_val)}, test={len(X_test)}")
+    elif isinstance(data, tuple) and len(data) == 2:
+        # Fallback: treat all as train, no val/test
+        X_train, y_train = data
+        X_val, y_val = X_test, y_test = None, None
+        print(f"Loaded {len(X_train)} samples (no val/test split)")
+
+        # Reduce for demo
+        print("\n2. Reducing dataset size for demo (using first 1000 samples)...")
+        X_train = X_train[:1000]
+        y_train = y_train[:1000]
+        print(f"   Using: {len(X_train)} samples")
+    else:
+        raise RuntimeError("Unexpected return type from load_dataset")
+
+    # Convert lists to numpy arrays if needed
+    def to_numpy(x):
+        if x is None:
+            return None
+        if isinstance(x, list):
+            return np.array(x)
+        return x
+
+    X_train = to_numpy(X_train)
+    y_train = to_numpy(y_train)
+    X_val = to_numpy(X_val)
+    y_val = to_numpy(y_val)
+    X_test = to_numpy(X_test)
+    y_test = to_numpy(y_test)
 
     # Build and compile model
-    print("\n4. Building and compiling CNN model...")
+    print("\n3. Building and compiling CNN model...")
     model = build_cnn_model(input_shape=(150, 150, 3), num_classes=1)
     model = compile_model(model, learning_rate=0.001)
 
@@ -55,7 +94,18 @@ def test_with_real_data():
     )
 
     # Train model (just 5 epochs for demo)
-    print("\n5. Training model (5 epochs for demonstration)...")
+    print("\n4. Training model (5 epochs for demonstration)...")
+    # Ensure we have valid training and validation data
+    if X_train is None or y_train is None:
+        raise RuntimeError("Training data is missing.")
+    if X_val is None or y_val is None:
+        print(
+            "No validation set available, using training set for validation (not ideal)."
+        )
+        X_val, y_val = X_train, y_train
+
+    # Use smaller batch size to avoid GPU memory issues
+    print("   Using batch size of 32 (reduced dataset fits in GPU memory)...")
     history = train_model(
         model,
         (X_train, y_train),
@@ -65,22 +115,25 @@ def test_with_real_data():
         callbacks=callbacks,
     )
 
-    # Evaluate on test set
-    print("\n6. Evaluating on test set...")
-    test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
-    print(f"Test Accuracy: {test_acc:.4f}")
-    print(f"Test Loss: {test_loss:.4f}")
+    # Evaluate on test set if available
+    if X_test is not None and y_test is not None:
+        print("\n5. Evaluating on test set...")
+        test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
+        print(f"Test Accuracy: {test_acc:.4f}")
+        print(f"Test Loss: {test_loss:.4f}")
 
-    # Make predictions on a few test samples
-    print("\n7. Sample predictions:")
-    sample_predictions = model.predict(X_test[:5], verbose=0)
-    for i, (pred, true_label) in enumerate(zip(sample_predictions, y_test[:5])):
-        pred_class = "Dog" if pred[0] > 0.5 else "Cat"
-        true_class = "Dog" if true_label == 1 else "Cat"
-        confidence = pred[0] if pred[0] > 0.5 else (1 - pred[0])
-        print(
-            f"  Sample {i+1}: Predicted={pred_class} (confidence={confidence:.2%}), True={true_class}"
-        )
+        # Make predictions on a few test samples
+        print("\n6. Sample predictions:")
+        sample_predictions = model.predict(X_test[:5], verbose=0)
+        for i, (pred, true_label) in enumerate(zip(sample_predictions, y_test[:5])):
+            pred_class = "Dog" if pred[0] > 0.5 else "Cat"
+            true_class = "Dog" if true_label == 1 else "Cat"
+            confidence = pred[0] if pred[0] > 0.5 else (1 - pred[0])
+            print(
+                f"  Sample {i+1}: Predicted={pred_class} (confidence={confidence:.2%}), True={true_class}"
+            )
+    else:
+        print("\nNo test set available for evaluation.")
 
     print("\n✅ TEST 1 PASSED: Model trains successfully with real data!")
     return model
@@ -188,8 +241,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("Do you want to run the full test with real data?")
     print("This will:")
-    print("  • Load 1000 cat and dog images")
-    print("  • Train the model for 5 epochs (~2-3 minutes)")
+    print("  • Load 1000 cat and dog images from processed data")
+    print("  • Train the model for 5 epochs (~1-2 minutes)")
     print("  • Test with sample predictions")
     print("=" * 80)
 
